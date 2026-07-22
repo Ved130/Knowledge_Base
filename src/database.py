@@ -1,11 +1,11 @@
 from sqlalchemy import create_engine,Text,Column,Integer,DateTime,String
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
+import os
 
+Db_url = os.getenv("DATABASE_URL")
 
-Db_url ="postgresql://postgres:postgres@127.0.0.1:5433/knowledge_base"
-
-engine = create_engine(Db_url)
+engine = create_engine(Db_url, "postgresql://postgres:password@127.0.0.1:5433/knowledge_base")
 sessionlocal = sessionmaker(bind = engine)
 Base = declarative_base()
 

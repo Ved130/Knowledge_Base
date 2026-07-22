@@ -8,11 +8,15 @@ from src.database import save_convo, get_recent, init_db
 load_dotenv()
 import redis
 import json
+import os
+
 client = chromadb.PersistentClient(path="./chroma_db")
 collection = client.get_collection(name="knowledge_base")
 
+
+redis_url = os.getenv("REDIS_URL")
 llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
-cache = redis.Redis(host="localhost",port = 6379,db = 0,decode_responses=True)
+cache = redis.Redis(redis_url,decode_responses=True)
 class AgentState(TypedDict):
     question: str
     context: str
