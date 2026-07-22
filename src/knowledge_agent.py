@@ -11,7 +11,7 @@ import json
 import os
 
 client = chromadb.PersistentClient(path="./chroma_db")
-collection = client.get_collection(name="knowledge_base")
+collection = client.get_or_create_collection(name="knowledge_base")
 
 
 redis_url = os.getenv("REDIS_URL")
