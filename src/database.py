@@ -5,7 +5,7 @@ import os
 
 Db_url = os.getenv("DATABASE_URL")
 
-engine = create_engine(Db_url, "postgresql://postgres:password@127.0.0.1:5433/knowledge_base")
+engine = create_engine(Db_url)
 sessionlocal = sessionmaker(bind = engine)
 Base = declarative_base()
 
