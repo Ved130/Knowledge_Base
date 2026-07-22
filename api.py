@@ -7,7 +7,10 @@ from dotenv import load_dotenv
 from src.database import get_recent, init_db
 from src.limiter import limiter
 from fastapi import Request
+from fastapi import UploadFile, File
+from src.ingest import ingest_pdf
 import os
+import shutil
 
 load_dotenv()
 
@@ -39,3 +42,15 @@ def query(request:Request,body:UserQuery, status = Depends(verify_api_key)):
     answer = ask(body.question)
     return f"Response: {answer}"
 
+@app.post("/ingest")
+@limiter.limit("5/minute")
+async def ingest_file(file:UploadFile = File(),status = Depends(verify_api_key)):
+    temp_path = f"./data/pdfs/{file.filename}"
+    with open(temp_path,"wb") as buffer:
+        shutil.copyfileobj(file.file,buffer)
+
+    ingest_pdf(temp_path)
+
+    return f"Successfully ingested {file.filename}"
+
+    
