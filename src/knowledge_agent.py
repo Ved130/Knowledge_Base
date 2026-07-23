@@ -16,7 +16,7 @@ collection = client.get_or_create_collection(name="knowledge_base")
 
 redis_url = os.getenv("REDIS_URL")
 llm = ChatGroq(model="llama-3.1-8b-instant",api_key= os.getenv("GROQ_API_KEY"), temperature=0)
-cache = redis.Redis(redis_url,decode_responses=True)
+cache = redis.from_url(redis_url,decode_responses=True)
 class AgentState(TypedDict):
     question: str
     context: str
