@@ -44,7 +44,7 @@ def query(request:Request,body:UserQuery, status = Depends(verify_api_key)):
 
 @app.post("/ingest")
 @limiter.limit("5/minute")
-async def ingest_file(file:UploadFile = File(),status = Depends(verify_api_key)):
+async def ingest_file(request:Request, file:UploadFile = File(),status = Depends(verify_api_key)):
     temp_path = f"./data/pdfs/{file.filename}"
     with open(temp_path,"wb") as buffer:
         shutil.copyfileobj(file.file,buffer)
