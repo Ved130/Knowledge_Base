@@ -18,6 +18,8 @@ splitter = RecursiveCharacterTextSplitter(
 def ingest_pdf(path:str):
     print(f"ingesting docs")
     
+    pdf_folder = "./data/pdfs"
+    os.mkdir(pdf_folder,exist_ok = True)
     existing = collection.get(where = {"source":path})
 
     if existing["ids"]:
