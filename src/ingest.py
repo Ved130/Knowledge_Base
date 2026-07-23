@@ -18,8 +18,7 @@ splitter = RecursiveCharacterTextSplitter(
 def ingest_pdf(path:str):
     print(f"ingesting docs")
     
-    pdf_folder = "./data/pdfs"
-    os.mkdir(pdf_folder,exist_ok = True)
+    
     existing = collection.get(where = {"source":path})
 
     if existing["ids"]:
@@ -83,6 +82,7 @@ def ingest_youtube(url:str):
 
 def ingest_all_pdfs():
     pdf_folder = "./data/pdfs"
+    os.mkdirs(pdf_folder,exist_ok = True)
     for filename in os.listdir(pdf_folder):
         if filename.endswith(".pdf"):
             ingest_pdf(os.path.join(pdf_folder,filename))
