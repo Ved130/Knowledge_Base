@@ -91,9 +91,3 @@ Then go to `http://localhost:8000/docs`.
 
 All endpoints except `/health` require an `x-api-key` header. Rate limited to 5 requests per minute.
 
-## What's next
-
-- RAGAS evaluation to measure retrieval quality with real numbers
-- Streamlit frontend for non-API access
-- Hybrid search (BM25 + semantic) for better retrieval on keyword-heavy queries
-- YouTube ingestion via API endpoint
