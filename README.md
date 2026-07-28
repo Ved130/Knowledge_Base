@@ -87,7 +87,7 @@ Then go to `http://localhost:8000/docs`.
 | `/ingest` | POST | Upload a PDF for ingestion |
 | `/ask` | POST | Ask a question |
 | `/history` | GET | Get recent conversation history |
-| `/health` | GET | Check if the service is up |
+
 
 All endpoints except `/health` require an `x-api-key` header. Rate limited to 5 requests per minute.
 
