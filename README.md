@@ -44,9 +44,9 @@ Repeated queries are cached in Redis. Conversation history is persisted to Postg
 https://knowledgebase-production-95be.up.railway.app/docs
 ```
 
-Interactive Swagger UI — upload a PDF and start querying it directly from the browser.
+Interactive Swagger UI deployed, upload a PDF and start querying it directly from the browser......give it a try.
 
-## Running locally
+## Steps to run it locally
 
 **Prerequisites:** Python 3.11, Docker
 
@@ -87,6 +87,8 @@ Then go to `http://localhost:8000/docs`.
 | `/ingest` | POST | Upload a PDF for ingestion |
 | `/ask` | POST | Ask a question |
 | `/history` | GET | Get recent conversation history |
+
+further endpoints and features will be added
 
 
 
