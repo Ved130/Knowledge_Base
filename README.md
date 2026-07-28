@@ -89,5 +89,5 @@ Then go to `http://localhost:8000/docs`.
 | `/history` | GET | Get recent conversation history |
 
 
-All endpoints except `/health` require an `x-api-key` header. Rate limited to 5 requests per minute.
+
 
