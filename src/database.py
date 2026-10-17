@@ -2,7 +2,8 @@ from sqlalchemy import create_engine,Text,Column,Integer,DateTime,String
 from sqlalchemy.orm import declarative_base, sessionmaker
 from datetime import datetime
 import os
-
+from dotenv import load_dotenv
+load_dotenv()
 Db_url = os.getenv("DATABASE_URL")
 
 engine = create_engine(Db_url)

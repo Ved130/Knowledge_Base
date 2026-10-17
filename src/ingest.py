@@ -11,8 +11,8 @@ collection = client.get_or_create_collection(name="knowledge_base")
 
 
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size = 100,
-    chunk_overlap = 40
+    chunk_size = 800,
+    chunk_overlap = 120
 )
 
 def ingest_pdf(path:str):
@@ -31,6 +31,10 @@ def ingest_pdf(path:str):
     print(f"pages loaded: {len(documents)}")
     print(f"chunks created: {len(chunks)}")
 
+    if not chunks:
+        print("Failed to ingest document")
+        return
+    
     for i,chunk in enumerate(chunks):
         collection.add(
             documents = [chunk.page_content],
@@ -41,6 +45,7 @@ def ingest_pdf(path:str):
                 "page":str(chunk.metadata.get("page",0))
             }]
         )
+        
     print(f"stored{len(chunks)} chunks from the pdf {os.path.basename(path)}")
 
 

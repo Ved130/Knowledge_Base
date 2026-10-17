@@ -9,6 +9,7 @@ from src.limiter import limiter
 from fastapi import Request
 from fastapi import UploadFile, File
 from src.ingest import ingest_pdf
+from src.latency import latency_middleware
 import os
 import shutil
 
@@ -31,16 +32,19 @@ async def lifespan(app:FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.state.limiter = limiter
+
+app.middleware("http")(latency_middleware)
+
 @app.get("/history")
 @limiter.limit("5/minute")
 def history(request:Request,status = Depends(verify_api_key)):
     return {"history": get_recent(limit = 10)}
 
 @app.post("/ask")
-@limiter.limit("5/minute")
-def query(request:Request,body:UserQuery, status = Depends(verify_api_key)):
-    answer = ask(body.question)
-    return f"Response: {answer}"
+@limiter.limit("500/minute")
+def query(request: Request, body: UserQuery, status=Depends(verify_api_key)):
+    result = ask(body.question)
+    return {"question": body.question, **result}
 
 @app.post("/ingest")
 @limiter.limit("5/minute")
@@ -51,6 +55,6 @@ async def ingest_file(request:Request, file:UploadFile = File(),status = Depends
 
     ingest_pdf(temp_path)
 
-    return f"Successfully ingested {file.filename}"
+    return {f"Successfully ingested {file.filename}"}
 
     

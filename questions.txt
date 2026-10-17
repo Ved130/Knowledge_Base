@@ -1,0 +1,40 @@
+Whose resume is this?
+What is the email address on the resume?
+What is the CGPA mentioned in the resume?
+Which institute is the candidate studying at?
+What degree is the candidate pursuing?
+When does the candidate's degree end?
+Which courses are listed as relevant coursework?
+What programming languages does the candidate know?
+Which GenAI and retrieval tools are listed?
+Which forecasting methods are listed under technical skills?
+What vector database is used in the knowledge base project?
+How many specialised LangGraph nodes does the knowledge base project have?
+What caching pattern is used in the knowledge base project?
+Where was the knowledge base API deployed?
+What kind of rate limiting does the knowledge base project use?
+What speedup did the custom Triton kernel achieve?
+What Dice score was achieved on OASIS Learn2Reg?
+What was the fold rate in the image registration project?
+What median Dice was achieved on abdominal MR-CT?
+What is the Fast-Warmup Abrupt Curriculum?
+How much Dice gain did the curriculum give?
+How many S&P 500 stocks were used in the volatility project?
+Which years of data does the volatility project cover?
+Which models were compared in the volatility forecasting project?
+Did the TFT beat GARCH, and what was the p-value?
+Which models performed better than the TFT?
+How many stock-days were used for VaR backtesting?
+What was the VaR breach rate with normal VaR?
+What breach rate did filtered historical simulation achieve?
+What coverage did conformalized quantile regression achieve?
+How much narrower were the intervals than static conformal?
+How large was the team led for Xpecto 2026?
+What role did the candidate have at TEDx IIT Mandi?
+What place did the team get in the Inter-IIT short film competition?
+Summarise the candidate's projects
+Generate study questions about the volatility forecasting project
+What is the candidate's salary expectation?
+Has the candidate worked at Google?
+What is the candidate's home address?
+Which hackathon did the candidate win?

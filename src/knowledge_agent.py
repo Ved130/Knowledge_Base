@@ -4,25 +4,33 @@ import chromadb
 from langchain_groq import ChatGroq
 from langchain_classic.prompts import PromptTemplate
 from dotenv import load_dotenv
-from src.database import save_convo, get_recent, init_db
 load_dotenv()
+from src.database import save_convo, get_recent, init_db
+from src.latency import stage, set_cache_status
 import redis
 import json
 import os
+
 
 client = chromadb.PersistentClient(path="./chroma_db")
 collection = client.get_or_create_collection(name="knowledge_base")
 
 
+
 redis_url = os.getenv("REDIS_URL")
-llm = ChatGroq(model="llama-3.1-8b-instant",api_key= os.getenv("GROQ_API_KEY"), temperature=0)
+llm = ChatGroq(model="openai/gpt-oss-20b",api_key= os.getenv("GROQ_API_KEY"), temperature=0,max_retries=0)
 cache = redis.from_url(redis_url,decode_responses=True)
+CACHE_PREFIX = "kb:"
+CACHE_TTL = 3600 #cache time to live
 class AgentState(TypedDict):
     question: str
     context: str
     answer: str
     task: str
+    sources: List[str]
     history: List[dict]
+    
+    
 
 def route_decision(state: AgentState) -> str:
     question = state["question"].lower()
@@ -38,12 +46,16 @@ def router(state: AgentState) -> AgentState:
     return state
 
 def retrieve(state: AgentState) -> AgentState:
-    results = collection.query(
-        query_texts=[state["question"]],
-        n_results=3
-    )
+    with stage("retrieval"):
+        results = collection.query(
+            query_texts=[state["question"]],
+            n_results=5
+        )
+        sources = sorted({os.path.basename(m.get("source", "")) for m in results["metadatas"][0]})
+    print(f"retrieved {len(results['documents'][0])} chunks from: {sorted(set(sources))}")
     context = "\n".join(results["documents"][0])
-    return {"context": context}
+    print("RETRIEVE sources:", sources)
+    return {"context": context,"sources":sources}
 
 def generate(state: AgentState) -> AgentState:
     task = route_decision(state)
@@ -74,6 +86,14 @@ Summary:"""
             template="""
 You are a helpful study assistant. Generate clear study questions based on the content below.
 
+Rules:
+- Use ONLY the context below. If the answer is not there, reply exactly: "I don't have that information."
+- Answer the question directly in 1-4 sentences. Use a short bullet list only if listing several items.
+- Copy names, numbers, dates and contact details exactly as written in the context.
+- Do not overstate results; keep qualifiers like "though", "competitive with", "remained stronger".
+- Plain Markdown only: no tables, no HTML tags.
+- Each context chunk starts with [Source: ...] naming its document.
+
 Content:
 {context}
 
@@ -91,6 +111,14 @@ Study Questions:"""
 You are a helpful assistant. Answer the question using only the context provided.
 If the answer is not in the context say "I don't have that information."
 
+Rules:
+- Use ONLY the context below. If the answer is not there, reply exactly: "I don't have that information."
+- Answer the question directly in 1-4 sentences. Use a short bullet list only if listing several items.
+- Copy names, numbers, dates and contact details exactly as written in the context.
+- Do not overstate results; keep qualifiers like "though", "competitive with", "remained stronger".
+- Plain Markdown only: no tables, no HTML tags.
+- Each context chunk starts with [Source: ...] naming its document.
+
 Context:
 {context}
 
@@ -106,8 +134,8 @@ Answer:"""
             history=history,
             question=state["question"]
         )
-
-    response = llm.invoke(prompt)
+    with stage("llm"):
+        response = llm.invoke(prompt)
     return {"answer": response.content}
 
 def build_graph():
@@ -135,37 +163,64 @@ def build_graph():
     return graph.compile()
 
 conversation_history = []
+def clear_cache()->int:
+    "To clear cache called after ingestion to prevent stale answers"
+    try:
+        keys = list(cache.scan_iter(match=f"{CACHE_PREFIX}*"))
+        if keys:
+            cache.delete(*keys)
 
+        return len(keys)
+    except redis.exceptions.RedisError as e:
+        print(f"Cache clear failed{e}")
 def ask(question: str) -> str:
-    graph = build_graph()
-    key = question.lower().strip()
-
-    cached = cache.get(key)
+    key = CACHE_PREFIX+question.lower().strip()
+    cached = None
+    with stage("cache_lookup"):
+        try:
+            cached = cache.get(key)
+        except redis.exceptions.RedisError as e:
+            print(f"Cache read failed{e}")
+    set_cache_status(hit=cached is not None)
 
     if cached:
+        data = json.loads(cached)
+        data["cached"] = True
         print("Cache hit......returning answer")
-        return cached
+        return data
+    
     result = graph.invoke({
         "question": question,
         "context": "",
         "answer": "",
         "task": "",
-        "history": conversation_history
+        "sources":"",
+        "history": conversation_history[-3:]
     })
-     
-    answer = result["answer"]
-    cache.set(key, answer, ex=3600)
 
-    save_convo(question=question, answer=answer, task_type="qa")
+    print("GRAPH result keys:", list(result.keys()))
+
+    data = {"answer": result["answer"], "sources": result.get("sources", [])}
+    
+    
+    try:
+        cache.set(key, json.dumps(data), ex=CACHE_TTL)
+    except redis.exceptions.RedisError as e:
+        print(f"Error in caching {e}")
+
+    save_convo(question=question, answer=data["answer"], task_type="qa")
+    
+    del conversation_history[:-3] #deletes the last 3 conversations saved to keep memory bounded
 
 
     conversation_history.append({
         "question": question,
-        "answer": result["answer"]
+        "answer": data["answer"]
     })
+    data["cached"] = False
+    return data
 
-    return result["answer"]
-
+graph = build_graph()
 if __name__ == "__main__":
     while True:
         question = input("\nAsk your knowledge base: ")
