@@ -1,52 +1,105 @@
 # Personal Knowledge Base Agent
 
-A RAG-based multi-agent system for querying personal documents through natural language. Upload lecture notes, research papers, or YouTube videos and ask questions across all of them in one place.
+A multi-agent RAG system for querying personal documents in natural language. Upload PDFs or YouTube videos, then ask questions, request summaries, or generate study questions across everything you've added. Answers are grounded in your documents and returned with their sources.
 
 ## What it does
 
-- Upload PDFs or paste a YouTube URL to add content to the knowledge base
-- Ask questions in plain English across everything uploaded
-- Request summaries of topics or generate study questions for exam prep
-- Maintains conversation context within a session
+- Ingest PDFs (upload or drop into `data/pdfs/`) and YouTube transcripts
+- Ask questions in plain English; get answers with the documents they came from
+- Request summaries or generate study questions for revision
+- Cache repeated questions in Redis and persist conversation history to a database
+- Expose per-request and per-stage latency for monitoring
 
 ## How it works
-
-Uploaded documents are chunked and embedded into a ChromaDB vector store. When a query comes in, a LangGraph agent determines the request type — Q&A, summarisation, or study question generation — retrieves the relevant chunks, and passes them to an LLM to generate the response.
 
 ```
 PDF / YouTube URL
       ↓
-  Ingestion pipeline (chunking + embeddings)
+Ingestion (800-char chunks, 120 overlap, source-tagged) → ChromaDB vector store
       ↓
-  ChromaDB vector store
-      ↓
-User query → LangGraph router → retriever → LLM → response
+User query → Redis cache ──hit──→ answer (~4 ms)
+                 │ miss
+                 ↓
+        LangGraph router → retrieve (top-5 chunks) → LLM (Q&A / summary / study questions)
+                 ↓
+        answer + sources → cached in Redis, saved to DB
 ```
 
-Repeated queries are cached in Redis. Conversation history is persisted to PostgreSQL.
+- **Router:** sends each request to the Q&A, summarisation or study-question prompt
+- **Grounding:** the Q&A prompt answers only from retrieved context and says "I don't have that information" otherwise
+- **Cache invalidation:** ingesting a new document clears cached answers so they never go stale
+- **Graceful degradation:** if Redis is unavailable, requests are answered without the cache instead of failing
 
 ## Tech stack
 
 | Layer | Tool |
 |---|---|
 | Agent framework | LangGraph |
-| LLM | Groq (Llama 3.1 8B) |
+| LLM | Groq (`openai/gpt-oss-20b`, configurable) |
 | Vector store | ChromaDB |
-| Embeddings | sentence-transformers (all-MiniLM-L6-v2) |
+| Embeddings | all-MiniLM-L6-v2 (ChromaDB default) |
 | Cache | Redis |
-| Database | PostgreSQL + SQLAlchemy |
-| API | FastAPI |
-| Deployment | Railway |
+| Database | PostgreSQL / SQLite via SQLAlchemy |
+| API | FastAPI, slowapi rate limiting |
+| Deployment | Docker, Railway |
 
-## Live API
+## API
+
+| Endpoint | Method | What it does |
+|---|---|---|
+| `/ingest` | POST | Upload a PDF for ingestion |
+| `/ask` | POST | Ask a question |
+| `/history` | GET | Recent conversation history |
+
+All endpoints require an `X-API-Key` header.
+
+Example `/ask` response:
+
+```json
+{
+  "question": "What is the CGPA mentioned in the resume?",
+  "answer": "The CGPA mentioned in the resume is 7.77/10.",
+  "sources": ["Resume_test.pdf"],
+  "cached": false
+}
+```
+
+Every response also carries timing headers:
 
 ```
-https://knowledgebase-production-95be.up.railway.app/docs
+X-Cache: MISS
+X-Process-Time-ms: 1385.2
+Server-Timing: cache_lookup;dur=0.8, retrieval;dur=226.7, llm;dur=1138.7, total;dur=1385.2
 ```
 
-Interactive Swagger UI deployed, upload a PDF and start querying it directly from the browser......give it a try.
+## Performance
 
-## Steps to run it locally
+Benchmarked with `benchmark_latency.py` on 40 questions (40/40 succeeded), first uncached and then cached. Server-side times:
+
+| | Median | p95 |
+|---|---|---|
+| Uncached, total | 1,385 ms | 1,887 ms |
+| ↳ LLM generation | 1,139 ms | 1,650 ms |
+| ↳ Retrieval | 227 ms | 261 ms |
+| Cached, total | 3.6 ms | 4.4 ms |
+
+- LLM generation is ~83% of uncached latency, so caching gives a ~385× speedup on repeat questions.
+- Retrieval time is dominated by embedding the query on CPU, not by the vector search.
+
+Reproduce:
+
+```bash
+python benchmark_latency.py --url http://127.0.0.1:8000/ask --api-key YOUR_KEY \
+    --field question --redis-url redis://localhost:6379/0 --cache-prefix "kb:" --sleep 10
+```
+
+## Lessons learned
+
+- **Chunk size matters more than expected.** With 100-character chunks, a one-page resume became 63 fragments; retrieval lost context and the model answered with a hallucinated name. Moving to 800-character chunks with overlap fixed it.
+- **Caches need invalidation.** Keying answers by question meant re-ingested documents still returned old answers until the cache was cleared on ingest.
+- **Measure before optimising.** Stage-level timing showed the LLM, not retrieval or the database, is the bottleneck.
+
+## Run locally
 
 **Prerequisites:** Python 3.11, Docker
 
@@ -54,42 +107,37 @@ Interactive Swagger UI deployed, upload a PDF and start querying it directly fro
 git clone https://github.com/Ved130/Knowledge_Base
 cd Knowledge_Base
 python -m venv .venv
-.venv\Scripts\activate  # Windows
-source .venv/bin/activate  # Mac/Linux
+.venv\Scripts\activate        # Windows
+source .venv/bin/activate     # Mac/Linux
 pip install -r requirements.txt
 ```
 
-Start Redis and PostgreSQL:
+Start Redis (and optionally PostgreSQL):
+
 ```bash
-docker run -d --name redis -p 6379:6379 redis:alpine
-docker run -d --name postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=knowledge_base -e POSTGRES_HOST_AUTH_METHOD=trust -p 5433:5432 postgres:alpine
+docker run -d --name kb-redis -p 6379:6379 redis:7
 ```
 
 Create a `.env` file:
+
 ```
 GROQ_API_KEY=your_groq_key
+GROQ_MODEL=openai/gpt-oss-20b
 API_KEY=your_secret_key
-REDIS_URL=redis://localhost:6379
-DATABASE_URL=postgresql://postgres:password@127.0.0.1:5433/knowledge_base
+REDIS_URL=redis://localhost:6379/0
+DATABASE_URL=sqlite:///./local.db
+RATE_LIMIT=5/minute
 ```
 
-Run the API:
-```bash
-uvicorn api:app --reload
-```
+For PostgreSQL, use `DATABASE_URL=postgresql://user:password@host:port/dbname` instead.
 
-Then go to `http://localhost:8000/docs`.
+## Deployment
 
-## API endpoints
+Previously deployed on Railway; the public instance is currently offline to avoid hosting costs. The app runs unchanged in any Docker-capable host with the environment variables above.
 
-| Endpoint | Method | What it does |
-|---|---|---|
-| `/ingest` | POST | Upload a PDF for ingestion |
-| `/ask` | POST | Ask a question |
-| `/history` | GET | Get recent conversation history |
+## Future work
 
-further endpoints and features will be added
-
-
-
-
+- Stream responses to cut time-to-first-token
+- Semantic caching so paraphrased questions also hit the cache
+- Faster query embeddings (model loaded once / GPU) to reduce retrieval time
+- Automated retrieval and faithfulness evaluation (hit@k, exact-match on factual questions)
