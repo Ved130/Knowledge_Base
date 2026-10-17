@@ -10,6 +10,7 @@ from fastapi import Request
 from fastapi import UploadFile, File
 from src.ingest import ingest_pdf
 from src.latency import latency_middleware
+from src.knowledge_agent import ask, list_documents, resolve_source
 import os
 import shutil
 
@@ -19,6 +20,7 @@ api_key = os.getenv("API_KEY")
 
 class UserQuery(BaseModel):
     question:str
+    source:str|None = None
 
 def verify_api_key(x_api_key:str = Header()):
     if x_api_key != api_key:
@@ -43,8 +45,25 @@ def history(request:Request,status = Depends(verify_api_key)):
 @app.post("/ask")
 @limiter.limit("500/minute")
 def query(request: Request, body: UserQuery, status=Depends(verify_api_key)):
-    result = ask(body.question)
-    return {"question": body.question, **result}
+    source = None
+    if body.source:
+        available = list_documents()
+        matches = resolve_source(body.source, available)
+        if len(matches) != 1:
+            raise HTTPException(status_code=400, detail={
+                "error": "No match" if not matches else "Ambiguous document name",
+                "matches": matches,
+                "available": available,
+            })
+        source = matches[0]
+    result = ask(body.question, source)
+    return {"question": body.question, "source": source, **result}
+
+@app.get("/documents")
+def documents(status=Depends(verify_api_key)):
+    from src.ingest import collection
+    metas = collection.get(include=["metadatas"])["metadatas"]
+    return {"documents": sorted({m.get("filename") or os.path.basename(m["source"]) for m in metas})}
 
 @app.post("/ingest")
 @limiter.limit("5/minute")

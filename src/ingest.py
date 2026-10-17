@@ -40,10 +40,11 @@ def ingest_pdf(path:str):
             documents = [chunk.page_content],
             ids=[f"pdf_{os.path.basename(path)}_{i}"],
             metadatas=[{
-                "source":path,
-                "type":"pdf",
-                "page":str(chunk.metadata.get("page",0))
-            }]
+    "source": path,
+    "filename": os.path.basename(path),
+    "type": "pdf",
+    "page": str(chunk.metadata.get("page", 0))
+}]
         )
         
     print(f"stored{len(chunks)} chunks from the pdf {os.path.basename(path)}")

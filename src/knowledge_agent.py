@@ -10,6 +10,7 @@ from src.latency import stage, set_cache_status
 import redis
 import json
 import os
+import re
 
 
 client = chromadb.PersistentClient(path="./chroma_db")
@@ -29,8 +30,22 @@ class AgentState(TypedDict):
     task: str
     sources: List[str]
     history: List[dict]
+    source:str
     
     
+
+def list_documents() -> list[str]:
+    metas = collection.get(include=["metadatas"])["metadatas"]
+    return sorted({m.get("filename") or os.path.basename(m["source"]) for m in metas})
+
+def _tokens(name: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", name.lower().removesuffix(".pdf")))
+
+def resolve_source(name: str, available: list[str]) -> list[str]:
+    if name in available:
+        return [name]
+    want = _tokens(name)
+    return [f for f in available if want and want <= _tokens(f)]
 
 def route_decision(state: AgentState) -> str:
     question = state["question"].lower()
@@ -47,15 +62,18 @@ def router(state: AgentState) -> AgentState:
 
 def retrieve(state: AgentState) -> AgentState:
     with stage("retrieval"):
-        results = collection.query(
-            query_texts=[state["question"]],
-            n_results=5
-        )
-        sources = sorted({os.path.basename(m.get("source", "")) for m in results["metadatas"][0]})
-    print(f"retrieved {len(results['documents'][0])} chunks from: {sorted(set(sources))}")
-    context = "\n".join(results["documents"][0])
-    print("RETRIEVE sources:", sources)
-    return {"context": context,"sources":sources}
+        query_args = {"query_texts": [state["question"]], "n_results": 5}
+        if state.get("source"):
+            query_args["where"] = {"filename": state["source"]}
+        results = collection.query(**query_args)
+
+    docs, metas = results["documents"][0], results["metadatas"][0]
+    sources = sorted({os.path.basename(m.get("source", "")) for m in metas})
+    context = "\n\n".join(
+        f"[Source: {os.path.basename(m.get('source', ''))}]\n{d}"
+        for d, m in zip(docs, metas)
+    )
+    return {"context": context, "sources": sources}
 
 def generate(state: AgentState) -> AgentState:
     task = route_decision(state)
@@ -70,6 +88,8 @@ def generate(state: AgentState) -> AgentState:
             template="""
 You are a helpful assistant. Summarise the following content clearly and concisely.
 Focus on the key concepts and main ideas.
+
+
 
 Content:
 {context}
@@ -93,6 +113,7 @@ Rules:
 - Do not overstate results; keep qualifiers like "though", "competitive with", "remained stronger".
 - Plain Markdown only: no tables, no HTML tags.
 - Each context chunk starts with [Source: ...] naming its document.
+- If chunks come from different documents, never combine facts across them; say which document each fact comes from.
 
 Content:
 {context}
@@ -118,6 +139,7 @@ Rules:
 - Do not overstate results; keep qualifiers like "though", "competitive with", "remained stronger".
 - Plain Markdown only: no tables, no HTML tags.
 - Each context chunk starts with [Source: ...] naming its document.
+- If chunks come from different documents, never combine facts across them; say which document each fact comes from.
 
 Context:
 {context}
@@ -173,7 +195,7 @@ def clear_cache()->int:
         return len(keys)
     except redis.exceptions.RedisError as e:
         print(f"Cache clear failed{e}")
-def ask(question: str) -> str:
+def ask(question: str,source: str|None = None) -> str:
     key = CACHE_PREFIX+question.lower().strip()
     cached = None
     with stage("cache_lookup"):
@@ -191,10 +213,11 @@ def ask(question: str) -> str:
     
     result = graph.invoke({
         "question": question,
+        "source":source or "",
         "context": "",
         "answer": "",
         "task": "",
-        "sources":"",
+        "sources":source or "",
         "history": conversation_history[-3:]
     })
 
